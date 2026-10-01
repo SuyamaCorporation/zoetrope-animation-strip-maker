@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zoetrope Animation Strip Maker</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white min-h-screen p-3">
+<h1 class="text-2xl font-bold text-orange-400 text-center mb-1">Zoetrope Animation Strip Maker</h1>
+<p class="text-center text-gray-400 text-xs mb-3">Draw 12 frames then watch your animation spin in the zoetrope preview</p>
+
+<!-- Tool bar -->
+<div class="flex flex-wrap gap-2 justify-center mb-3">
+  <button id="toolPencil" aria-label="Pencil tool" class="px-3 py-1 rounded text-sm bg-orange-600">Pencil</button>
+  <button id="toolEraser" aria-label="Eraser tool" class="px-3 py-1 rounded text-sm bg-gray-700">Eraser</button>
+  <div class="flex items-center gap-1">
+    <label class="text-xs text-gray-400">Color:</label>
+    <input type="color" id="drawColor" value="#ffffff" class="w-8 h-7 rounded cursor-pointer" aria-label="Draw color">
+  </div>
+  <div class="flex items-center gap-1">
+    <label class="text-xs text-gray-400">Size:</label>
+    <input type="range" id="brushSize" min="1" max="20" value="4" class="w-20 accent-orange-400" aria-label="Brush size">
+  </div>
+  <button id="copyPrevBtn" aria-label="Copy previous frame" class="px-3 py-1 rounded text-sm bg-blue-700 hover:bg-blue-600">Copy Prev Frame</button>
+  <button id="clearFrameBtn" aria-label="Clear current frame" class="px-3 py-1 rounded text-sm bg-red-800 hover:bg-red-700">Clear Frame</button>
+</div>
+
+<!-- Frame strip -->
+<div class="overflow-x-auto mb-3">
+  <div id="frameStrip" class="flex gap-2 pb-2" style="min-width:max-content"></div>
+</div>
+
+<!-- Editor canvas -->
+<div class="flex justify-center mb-3">
+  <div class="relative">
+    <div class="text-xs text-gray-400 text-center mb-1">Editing Frame <span id="editingLabel">1</span></div>
+    <canvas id="editorCanvas" width="200" height="200" class="rounded-lg border-2 border-orange-500 cursor-crosshair bg-gray-950" aria-label="Frame editor - draw your animation frame here"></canvas>
+  </div>
+</div>
+
+<!-- Preview section -->
+<div class="flex flex-col items-center gap-3 mb-4">
+  <div class="flex gap-3 flex-wrap justify-center items-center">
+    <button id="previewBtn" aria-label="Start zoetrope preview" class="px-4 py-2 bg-orange-600 hover:bg-orange-500 rounded-lg font-semibold transition">Play Zoetrope</button>
+    <button id="stopBtn" aria-label="Stop preview" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition hidden">Stop</button>
+    <div class="flex items-center gap-2">
+      <label class="text-xs text-gray-400">FPS: <span id="fpsLabel">12</span></label>
+      <input type="range" id="fpsSlider" min="6" max="24" value="12" class="w-24 accent-orange-400" aria-label="Animation FPS">
+    </div>
+  </div>
+  <canvas id="zoetropeCanvas" width="400" height="400" class="rounded-full border-4 border-orange-700 bg-gray-950 hidden" aria-label="Zoetrope circular preview"></canvas>
+</div>
+
+<!-- Print strip -->
+<div class="text-center mb-3">
+  <button id="printBtn" aria-label="Show printable strip" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition">Show Printable Strip</button>
+</div>
+<div id="printArea" class="hidden">
+  <div class="text-sm text-gray-400 text-center mb-2">Printable Strip (12 frames)</div>
+  <div id="printStrip" class="flex flex-wrap gap-1 justify-center border border-gray-600 p-2 rounded bg-gray-800"></div>
+</div>
+
+<script>
+const NUM_FRAMES = 12;
+const FRAME_SIZE = 200;
+const THUMB_SIZE = 60;
+
+// Frame data stored as ImageData
+const frameCanvases = [];
+for(let i=0;i<NUM_FRAMES;i++) {
+  const c = document.createElement('canvas');
+  c.width = FRAME_SIZE; c.height = FRAME_SIZE;
+  const fctx = c.getContext('2d');
+  fctx.fillStyle='#0f0f0f'; fctx.fillRect(0,0,FRAME_SIZE,FRAME_SIZE);
+  frameCanvases.push(c);
+}
+
+let currentFrame = 0;
+let tool = 'pencil';
+let color = '#ffffff';
+let brushSize = 4;
+let drawing = false;
+let lastX=0, lastY=0;
+
+const editor = document.getElementById('editorCanvas');
+const ectx = editor.getContext('2d');
+
+function loadFrameToEditor(idx) {
+  currentFrame = idx;
+  document.getElementById('editingLabel').textContent = idx+1;
+  ectx.clearRect(0,0,FRAME_SIZE,FRAME_SIZE);
+  ectx.drawImage(frameCanvases[idx],0,0);
+  updateThumbs();
+}
+
+function saveEditorToFrame() {
+  const fctx = frameCanvases[currentFrame].getContext('2d');
+  fctx.clearRect(0,0,FRAME_SIZE,FRAME_SIZE);
+  fctx.drawImage(editor,0,0);
+}
+
+// Build frame strip thumbnails
+const strip = document.getElementById('frameStrip');
+const thumbs = [];
+for(let i=0;i<NUM_FRAMES;i++) {
+  const wrapper = document.createElement('div');
+  wrapper.className='flex flex-col items-center cursor-pointer';
+  const c = document.createElement('canvas');
+  c.width=THUMB_SIZE; c.height=THUMB_SIZE;
+  c.className='rounded border-2 border-gray-600 hover:border-orange-400 transition';
+  c.setAttribute('aria-label',`Frame ${i+1}`);
+  const lbl = document.createElement('div');
+  lbl.className='text-xs text-gray-500 mt-0.5';
+  lbl.textContent=i+1;
+  wrapper.appendChild(c); wrapper.appendChild(lbl);
+  wrapper.addEventListener('click', () => {
+    saveEditorToFrame();
+    loadFrameToEditor(i);
+    thumbs.forEach((t,j)=>t.className='rounded border-2 transition '+(j===i?'border-orange-400':'border-gray-600 hover:border-orange-400'));
+  });
+  strip.appendChild(wrapper);
+  thumbs.push(c);
+}
+
+function updateThumbs() {
+  for(let i=0;i<NUM_FRAMES;i++) {
+    const tc = thumbs[i].getContext('2d');
+    tc.clearRect(0,0,THUMB_SIZE,THUMB_SIZE);
+    tc.drawImage(frameCanvases[i],0,0,THUMB_SIZE,THUMB_SIZE);
+    thumbs[i].className='rounded border-2 transition '+(i===currentFrame?'border-orange-400':'border-gray-600 hover:border-orange-400');
+  }
+}
+
+// Drawing on editor
+function getPos(e) {
+  const rect=editor.getBoundingClientRect();
+  const scaleX=FRAME_SIZE/rect.width, scaleY=FRAME_SIZE/rect.height;
+  const src = e.touches ? e.touches[0] : e;
+  return [(src.clientX-rect.left)*scaleX, (src.clientY-rect.top)*scaleY];
+}
+
+function startDraw(e) {
+  e.preventDefault(); drawing=true;
+  [lastX,lastY]=getPos(e);
+  ectx.beginPath(); ectx.moveTo(lastX,lastY);
+}
+function doDraw(e) {
+  if(!drawing) return; e.preventDefault();
+  const [x,y]=getPos(e);
+  ectx.globalCompositeOperation = tool==='eraser'?'destination-out':'source-over';
+  ectx.strokeStyle=color; ectx.lineWidth=brushSize;
+  ectx.lineCap='round'; ectx.lineJoin='round';
+  ectx.beginPath(); ectx.moveTo(lastX,lastY); ectx.lineTo(x,y); ectx.stroke();
+  lastX=x; lastY=y;
+  saveEditorToFrame(); updateThumbs();
+}
+function stopDraw(e) { drawing=false; ectx.globalCompositeOperation='source-over'; }
+
+editor.addEventListener('mousedown',startDraw);
+editor.addEventListener('mousemove',doDraw);
+editor.addEventListener('mouseup',stopDraw);
+editor.addEventListener('mouseleave',stopDraw);
+editor.addEventListener('touchstart',startDraw,{passive:false});
+editor.addEventListener('touchmove',doDraw,{passive:false});
+editor.addEventListener('touchend',stopDraw);
+
+document.getElementById('toolPencil').addEventListener('click',()=>{
+  tool='pencil';
+  document.getElementById('toolPencil').className='px-3 py-1 rounded text-sm bg-orange-600';
+  document.getElementById('toolEraser').className='px-3 py-1 rounded text-sm bg-gray-700';
+});
+document.getElementById('toolEraser').addEventListener('click',()=>{
+  tool='eraser';
+  document.getElementById('toolEraser').className='px-3 py-1 rounded text-sm bg-yellow-700';
+  document.getElementById('toolPencil').className='px-3 py-1 rounded text-sm bg-gray-700';
+});
+document.getElementById('drawColor').addEventListener('input',e=>color=e.target.value);
+document.getElementById('brushSize').addEventListener('input',e=>brushSize=parseInt(e.target.value));
+
+document.getElementById('copyPrevBtn').addEventListener('click',()=>{
+  if(currentFrame===0) return;
+  saveEditorToFrame();
+  const prev=frameCanvases[currentFrame-1];
+  const fctx=frameCanvases[currentFrame].getContext('2d');
+  fctx.clearRect(0,0,FRAME_SIZE,FRAME_SIZE);
+  fctx.drawImage(prev,0,0);
+  ectx.clearRect(0,0,FRAME_SIZE,FRAME_SIZE);
+  ectx.drawImage(frameCanvases[currentFrame],0,0);
+  updateThumbs();
+});
+
+document.getElementById('clearFrameBtn').addEventListener('click',()=>{
+  ectx.fillStyle='#0f0f0f'; ectx.fillRect(0,0,FRAME_SIZE,FRAME_SIZE);
+  saveEditorToFrame(); updateThumbs();
+});
+
+// Zoetrope preview
+const zCanvas=document.getElementById('zoetropeCanvas');
+const zctx=zCanvas.getContext('2d');
+const ZW=zCanvas.width, ZH=zCanvas.height, ZCX=ZW/2, ZCY=ZH/2;
+const ZR=160, SLOT_W=48, SLOT_H=48;
+
+let animId=null, frameIdx=0, rotation=0, fps=12;
+let lastFrameTime=0;
+
+document.getElementById('fpsSlider').addEventListener('input',e=>{fps=parseInt(e.target.value); document.getElementById('fpsLabel').textContent=fps;});
+
+function drawZoetrope(timestamp) {
+  if(!animId) return;
+  const interval=1000/fps;
+  if(timestamp-lastFrameTime>interval) { frameIdx=(frameIdx+1)%NUM_FRAMES; lastFrameTime=timestamp; }
+  rotation+=0.02;
+  zctx.clearRect(0,0,ZW,ZH);
+  // Draw circular drum
+  zctx.fillStyle='#1c1917';
+  zctx.beginPath(); zctx.arc(ZCX,ZCY,ZR+20,0,Math.PI*2); zctx.fill();
+  zctx.strokeStyle='#78350f'; zctx.lineWidth=8;
+  zctx.beginPath(); zctx.arc(ZCX,ZCY,ZR+20,0,Math.PI*2); zctx.stroke();
+  // Draw frame slots around circle
+  for(let i=0;i<NUM_FRAMES;i++) {
+    const angle = rotation + (2*Math.PI*i/NUM_FRAMES);
+    const sx=ZCX+Math.cos(angle)*ZR;
+    const sy=ZCY+Math.sin(angle)*ZR;
+    zctx.save();
+    zctx.translate(sx,sy);
+    zctx.rotate(angle+Math.PI/2);
+    zctx.drawImage(frameCanvases[i],-SLOT_W/2,-SLOT_H/2,SLOT_W,SLOT_H);
+    // Slot border
+    zctx.strokeStyle=i===frameIdx?'#f97316':'#44403c';
+    zctx.lineWidth=i===frameIdx?3:1;
+    zctx.strokeRect(-SLOT_W/2,-SLOT_H/2,SLOT_W,SLOT_H);
+    zctx.restore();
+  }
+  // Center slot preview (top of drum = current frame)
+  const viewAngle=rotation+Math.PI*2*(frameIdx/NUM_FRAMES);
+  zctx.fillStyle='#0f172a';
+  zctx.beginPath(); zctx.arc(ZCX,ZCY,40,0,Math.PI*2); zctx.fill();
+  zctx.drawImage(frameCanvases[frameIdx],ZCX-30,ZCY-30,60,60);
+  zctx.strokeStyle='#f97316'; zctx.lineWidth=2;
+  zctx.strokeRect(ZCX-30,ZCY-30,60,60);
+  animId=requestAnimationFrame(drawZoetrope);
+}
+
+document.getElementById('previewBtn').addEventListener('click',()=>{
+  saveEditorToFrame(); updateThumbs();
+  zCanvas.classList.remove('hidden');
+  document.getElementById('stopBtn').classList.remove('hidden');
+  document.getElementById('previewBtn').classList.add('hidden');
+  frameIdx=0; rotation=0; lastFrameTime=0;
+  animId=requestAnimationFrame(drawZoetrope);
+});
+document.getElementById('stopBtn').addEventListener('click',()=>{
+  cancelAnimationFrame(animId); animId=null;
+  zCanvas.classList.add('hidden');
+  document.getElementById('stopBtn').classList.add('hidden');
+  document.getElementById('previewBtn').classList.remove('hidden');
+});
+
+// Print strip
+document.getElementById('printBtn').addEventListener('click',()=>{
+  saveEditorToFrame();
+  const area=document.getElementById('printArea');
+  const ps=document.getElementById('printStrip');
+  ps.innerHTML='';
+  area.classList.toggle('hidden');
+  for(let i=0;i<NUM_FRAMES;i++) {
+    const c=document.createElement('canvas');
+    c.width=80; c.height=80;
+    c.className='rounded border border-gray-500';
+    c.style.imageRendering='pixelated';
+    const tc=c.getContext('2d');
+    tc.drawImage(frameCanvases[i],0,0,80,80);
+    const lbl=document.createElement('div');
+    lbl.className='text-xs text-center text-gray-400';
+    lbl.textContent=i+1;
+    const wrap=document.createElement('div');
+    wrap.appendChild(c); wrap.appendChild(lbl);
+    ps.appendChild(wrap);
+  }
+});
+
+// Init
+loadFrameToEditor(0);
+updateThumbs();
+</script>
+</body>
+</html>
